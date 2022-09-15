@@ -68,6 +68,7 @@
 //!
 //! Make sure that either the `log` feature or the `defmt-log` feature is enabled.
 
+#![feature(type_alias_impl_trait)]
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
 
