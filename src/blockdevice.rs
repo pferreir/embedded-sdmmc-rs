@@ -2,8 +2,6 @@
 //!
 //! Generic code for handling block devices.
 
-use core::future::Future;
-
 /// Represents a standard 512 byte block (also known as a sector). IBM PC
 /// formatted 5.25" and 3.5" floppy disks, SD/MMC cards up to 1 GiB in size
 /// and IDE/SATA Hard Drives up to about 2 TiB all have 512 byte blocks.
@@ -40,24 +38,18 @@ pub struct BlockIter {
 pub trait BlockDevice {
     /// The errors that the `BlockDevice` can return. Must be debug formattable.
     type Error: core::fmt::Debug;
-    /// Read Future
-    type ReadFuture<'a>: Future<Output = Result<(), Self::Error>> where Self: 'a;
-    /// Write Future
-    type WriteFuture<'a>: Future<Output = Result<(), Self::Error>> where Self: 'a;
-    /// Block Read Future
-    type BlocksFuture<'a>: Future<Output = Result<BlockCount, Self::Error>> where Self: 'a;
 
     /// Read one or more blocks, starting at the given block index.
-    fn read<'a>(
-        &'a self,
-        blocks: &'a mut [Block],
+    async fn read(
+        &self,
+        blocks: &mut [Block],
         start_block_idx: BlockIdx,
         reason: &str,
-    ) -> Self::ReadFuture<'a>;
+    ) -> Result<(), Self::Error>;
     /// Write one or more blocks, starting at the given block index.
-    fn write<'a>(&'a self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'_>;
+    async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
     /// Determine how many blocks this device can hold.
-    fn num_blocks(&self) -> Self::BlocksFuture<'_>;
+    async fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
 }
 
 impl Block {

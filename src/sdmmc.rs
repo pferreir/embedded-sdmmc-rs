@@ -480,26 +480,23 @@ where
 
 impl<U: BlockDevice + 'static, T: Deref<Target = U>> BlockDevice for T {
     type Error = U::Error;
-    type ReadFuture<'a> = impl Future<Output = Result<(), U::Error>> where T: 'a;
-    type WriteFuture<'a> = impl Future<Output = Result<(), U::Error>> where T: 'a;
-    type BlocksFuture<'a> = impl Future<Output = Result<BlockCount, U::Error>> where T: 'a;
 
-    fn read<'a>(
-        &'a self,
-        blocks: &'a mut [Block],
+    async fn read(
+        &self,
+        blocks: &mut [Block],
         start_block_idx: BlockIdx,
         _reason: &str,
-    ) -> Self::ReadFuture<'a> {
-        self.deref().read(blocks, start_block_idx, _reason)
+    ) -> Result<(), Self::Error> {
+        self.deref().read(blocks, start_block_idx, _reason).await
     }
 
     /// Write one or more blocks, starting at the given block index.
-    fn write<'a>(&'a self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'a> {
-        self.deref().write(blocks, start_block_idx)
+    async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        self.deref().write(blocks, start_block_idx).await
     }
 
-    fn num_blocks(&self) -> Self::BlocksFuture<'_> {
-        self.deref().num_blocks()
+    async fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+        self.deref().num_blocks().await
     }
 }
 
@@ -510,18 +507,14 @@ where
     CS: embedded_hal::digital::v2::OutputPin,
 {
     type Error = Error;
-    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> where Self: 'a;
-    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> where Self: 'a;
-    type BlocksFuture<'a> = impl Future<Output = Result<BlockCount, Self::Error>> where Self: 'a;
 
     /// Read one or more blocks, starting at the given block index.
-    fn read<'a>(
-        &'a self,
-        blocks: &'a mut [Block],
+    async fn read(
+        &self,
+        blocks: &mut [Block],
         start_block_idx: BlockIdx,
         _reason: &str,
-    ) -> Self::ReadFuture<'a> {
-        async move {
+    ) -> Result<(), Self::Error> {
             let start_idx = match self.0.card_type {
                 CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
                 CardType::SDHC => start_block_idx.0,
@@ -542,51 +535,46 @@ where
             }
             self.0.cs_high()?;
             Ok(())
-        }
     }
 
     /// Write one or more blocks, starting at the given block index.
-    fn write<'a>(&'a self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'a> {
-        async move {
-            let start_idx = match self.0.card_type {
-                CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
-                CardType::SDHC => start_block_idx.0,
-            };
-            self.0.cs_low()?;
-            if blocks.len() == 1 {
-                // Start a single-block write
-                self.0.card_command(CMD24, start_idx).await?;
-                self.write_data(DATA_START_BLOCK, &blocks[0].contents).await?;
-                self.0.wait_not_busy().await?;
-                if self.0.card_command(CMD13, 0).await? != 0x00 {
-                    return Err(Error::WriteError);
-                }
-                if self.0.receive().await? != 0x00 {
-                    return Err(Error::WriteError);
-                }
-            } else {
-                // Start a multi-block write
-                self.0.card_command(CMD25, start_idx).await?;
-                for block in blocks.iter() {
-                    self.0.wait_not_busy().await?;
-                    self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents).await?;
-                }
-                // Stop the write
-                self.0.wait_not_busy().await?;
-                self.0.send(STOP_TRAN_TOKEN).await?;
+    async fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        let start_idx = match self.0.card_type {
+            CardType::SD1 | CardType::SD2 => start_block_idx.0 * 512,
+            CardType::SDHC => start_block_idx.0,
+        };
+        self.0.cs_low()?;
+        if blocks.len() == 1 {
+            // Start a single-block write
+            self.0.card_command(CMD24, start_idx).await?;
+            self.write_data(DATA_START_BLOCK, &blocks[0].contents).await?;
+            self.0.wait_not_busy().await?;
+            if self.0.card_command(CMD13, 0).await? != 0x00 {
+                return Err(Error::WriteError);
             }
-            self.0.cs_high()?;
-            Ok(())
+            if self.0.receive().await? != 0x00 {
+                return Err(Error::WriteError);
+            }
+        } else {
+            // Start a multi-block write
+            self.0.card_command(CMD25, start_idx).await?;
+            for block in blocks.iter() {
+                self.0.wait_not_busy().await?;
+                self.write_data(WRITE_MULTIPLE_TOKEN, &block.contents).await?;
+            }
+            // Stop the write
+            self.0.wait_not_busy().await?;
+            self.0.send(STOP_TRAN_TOKEN).await?;
         }
+        self.0.cs_high()?;
+        Ok(())
     }
 
     /// Determine how many blocks this device can hold.
-    fn num_blocks(&self) -> Self::BlocksFuture<'_> {
-        async {
-            let num_bytes = self.card_size_bytes().await?;
-            let num_blocks = (num_bytes / 512) as u32;
-            Ok(BlockCount(num_blocks))
-        }
+    async fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+        let num_bytes = self.card_size_bytes().await?;
+        let num_blocks = (num_bytes / 512) as u32;
+        Ok(BlockCount(num_blocks))
     }
 }
 
