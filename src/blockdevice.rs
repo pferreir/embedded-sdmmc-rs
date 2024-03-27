@@ -3,6 +3,8 @@
 //! Generic code for handling block devices, such as types for identifying
 //! a particular block on a block device by its index.
 
+use core::future::Future;
+
 /// Represents a standard 512 byte block (also known as a sector). IBM PC
 /// formatted 5.25" and 3.5" floppy disks, SD/MMC cards up to 1 GiB in size
 /// and IDE/SATA Hard Drives up to about 2 TiB all have 512 byte blocks.
@@ -13,6 +15,43 @@
 pub struct Block {
     /// The 512 bytes in this block (or sector).
     pub contents: [u8; Block::LEN],
+}
+
+// This is WIP not used yet!
+
+/// Similar to above, but instead it holds a reference to a block's contents.
+#[derive(Clone)]
+pub struct RefBlock<'a> {
+    /// The (reference to) 512 bytes in this block (or sector).
+    pub contents: &'a [u8],
+}
+
+impl<'a> From<&'a Block> for RefBlock<'a> {
+    fn from(block: &'a Block) -> Self {
+        RefBlock {
+            contents: &block.contents,
+        }
+    }
+}
+
+impl<'a> RefBlock<'a> {
+    /// Create a new `RefBlock` from a slice of bytes.
+    pub fn from_byte_slice(contents: &'a [u8]) -> (Self, usize) {
+        let take = contents.len().min(Block::LEN);
+        (
+            Self {
+                contents: &contents[..take],
+            },
+            take,
+        )
+    }
+
+    /// Create a new `RefBlock` from a reference to a `Block`
+    pub fn from_block(block: &'a Block) -> Self {
+        RefBlock {
+            contents: &block.contents,
+        }
+    }
 }
 
 /// Represents the linear numeric address of a block (or sector). The first
@@ -45,11 +84,11 @@ pub trait BlockDevice {
         blocks: &mut [Block],
         start_block_idx: BlockIdx,
         reason: &str,
-    ) -> Result<(), Self::Error>;
+    ) -> impl Future<Output = Result<(), Self::Error>>;
     /// Write one or more blocks, starting at the given block index.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error>;
+    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> impl Future<Output = Result<(), Self::Error>>;
     /// Determine how many blocks this device can hold.
-    fn num_blocks(&self) -> Result<BlockCount, Self::Error>;
+    fn num_blocks(&self) -> impl Future<Output = Result<BlockCount, Self::Error>>;
 }
 
 impl Block {

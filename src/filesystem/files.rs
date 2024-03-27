@@ -74,62 +74,65 @@ where
     /// Read from the file
     ///
     /// Returns how many bytes were read, or an error.
-    pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
-        self.volume_mgr.read(self.raw_file, buffer)
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, crate::Error<D::Error>> {
+        self.volume_mgr.read(self.raw_file, buffer).await
     }
 
     /// Write to the file
-    pub fn write(&mut self, buffer: &[u8]) -> Result<(), crate::Error<D::Error>> {
-        self.volume_mgr.write(self.raw_file, buffer)
+    pub async fn write<const BLOCKS: usize>(
+        &mut self,
+        buffer: &[u8],
+    ) -> Result<(), crate::Error<D::Error>> {
+        self.volume_mgr.write::<BLOCKS>(self.raw_file, buffer).await
     }
 
     /// Check if a file is at End Of File.
-    pub fn is_eof(&self) -> bool {
+    pub async fn is_eof(&self) -> bool {
         self.volume_mgr
             .file_eof(self.raw_file)
             .expect("Corrupt file ID")
     }
 
     /// Seek a file with an offset from the current position.
-    pub fn seek_from_current(&mut self, offset: i32) -> Result<(), crate::Error<D::Error>> {
+    pub async fn seek_from_current(&mut self, offset: i32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr
             .file_seek_from_current(self.raw_file, offset)
     }
 
     /// Seek a file with an offset from the start of the file.
-    pub fn seek_from_start(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+    pub async fn seek_from_start(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.file_seek_from_start(self.raw_file, offset)
     }
 
     /// Seek a file with an offset back from the end of the file.
-    pub fn seek_from_end(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
+    pub async fn seek_from_end(&mut self, offset: u32) -> Result<(), crate::Error<D::Error>> {
         self.volume_mgr.file_seek_from_end(self.raw_file, offset)
     }
 
     /// Get the length of a file
-    pub fn length(&self) -> u32 {
+    pub async fn length(&self) -> u32 {
         self.volume_mgr
             .file_length(self.raw_file)
             .expect("Corrupt file ID")
     }
 
     /// Get the current offset of a file
-    pub fn offset(&self) -> u32 {
+    pub async fn offset(&self) -> u32 {
         self.volume_mgr
             .file_offset(self.raw_file)
             .expect("Corrupt file ID")
     }
 
     /// Convert back to a raw file
-    pub fn to_raw_file(self) -> RawFile {
+    pub async fn to_raw_file(self) -> RawFile {
         let f = self.raw_file;
         core::mem::forget(self);
         f
     }
 
     /// Flush any written data by updating the directory entry.
-    pub fn flush(&mut self) -> Result<(), Error<D::Error>> {
-        self.volume_mgr.flush_file(self.raw_file)
+    pub async fn flush(&mut self) -> Result<(), Error<D::Error>> {
+        self.volume_mgr.flush(self.raw_file).await
     }
 
     /// Consume the `File` handle and close it. The behavior of this is similar
@@ -143,15 +146,43 @@ where
     }
 }
 
-impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
-    for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+// NOTE - We are not able to do non-async closing of the file, so we cannot drop automatically!
+// impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize> Drop
+//     for File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+// where
+//     D: crate::BlockDevice,
+//     T: crate::TimeSource,
+// {
+//     fn drop(&mut self) {
+//         self.volume_mgr
+//             .close_file(self.raw_file)
+//             .expect("Failed to close file");
+//     }
+// }
+
+// For now, we are not able to do non-async closing of the file, so we cannot drop automatically!
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
 where
     D: crate::BlockDevice,
     T: crate::TimeSource,
 {
-    fn drop(&mut self) {
-        _ = self.volume_mgr.close_file(self.raw_file);
+    /// Manually close the file
+    pub async fn drop(self) {
+        self.volume_mgr
+            .close_file(self.raw_file)
+            .await
+            .expect("Failed to close file");
     }
+}
+
+// For now, we are not able to do non-async closing of the file, so we cannot drop automatically!
+impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
+    File<'a, D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>
+where
+    D: crate::BlockDevice,
+    T: crate::TimeSource,
+{
 }
 
 impl<'a, D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>
