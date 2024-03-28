@@ -720,10 +720,15 @@ where
         let bytes_until_max =
             usize::try_from(MAX_FILE_SIZE - self.open_files[file_idx].current_offset)
                 .map_err(|_| Error::ConversionError)?;
-        let bytes_to_write = core::cmp::min(buffer.len(), bytes_until_max);
+
+        let mut slice = &buffer[..bytes_until_max.min(buffer.len())];
+        let bytes_to_write = slice.len();
+
         let mut written = 0;
 
+        // Until we can make a slice of RefBlock, we need to do this iteratively
         while written < bytes_to_write {
+
             let mut current_cluster = self.open_files[file_idx].current_cluster;
             debug!(
                 "Have written bytes {}/{}, finding cluster {:?}",
@@ -778,33 +783,35 @@ where
             // TODO This will need a lot of memory. I suggest working on replacing `&[Block]` with `&[RefBlock]`
             // which can either reference a block, or a contiguous slice directly from the input buffer.
             let mut blocks: [_; BLOCKS] = from_fn(|_| Block::new());
-            let to_copy = core::cmp::min(block_avail, bytes_to_write - written);
+            let to_copy = core::cmp::min(block_avail, slice.len());
             if block_offset != 0 {
                 debug!("Partial block write");
                 self.block_device
-                    .read(&mut blocks, block_idx, "read")
+                    .read(&mut blocks[..1], block_idx, "read")
                     .await
                     .map_err(Error::DeviceError)?;
             }
             let block = &mut blocks[0];
             block[block_offset..block_offset + to_copy]
-                .copy_from_slice(&buffer[written..written + to_copy]);
-            written += to_copy;
+                .copy_from_slice(&slice[..to_copy]);
+            slice = &slice[to_copy..];
 
             let mut num_blocks = 1;
+            let mut to_copy_sum = to_copy;
 
             for i in 1..BLOCKS {
                 let block = &mut blocks[i];
-                let to_copy = (bytes_to_write - written).min(Block::LEN);
+                let to_copy = (slice.len()).min(Block::LEN);
                 if to_copy == 0 {
                     break;
                 }
-                block[..to_copy].copy_from_slice(&buffer[written..written + to_copy]);
-                written += to_copy;
-                num_blocks += 1;
-            }
 
-            // defmt::warn!("Writing {} blocks..", num_blocks);
+                // defmt::info!("Writing block {}, Bytes: {}", i, to_copy);
+                block[..to_copy].copy_from_slice(&slice[..to_copy]);
+                slice = &slice[to_copy..];
+                num_blocks += 1;
+                to_copy_sum += to_copy;
+            }
 
             self.block_device
                 .write(&blocks[..num_blocks], block_idx)
@@ -812,8 +819,9 @@ where
                 .map_err(Error::DeviceError)?;
             self.open_files[file_idx].current_cluster = current_cluster;
 
-            let to_copy = to_copy as u32;
-            let new_offset = self.open_files[file_idx].current_offset + to_copy;
+            written += to_copy_sum;
+
+            let new_offset = self.open_files[file_idx].current_offset + to_copy_sum as u32;
             if new_offset > self.open_files[file_idx].entry.size {
                 // We made it longer
                 self.open_files[file_idx].update_length(new_offset);
@@ -821,16 +829,17 @@ where
             self.open_files[file_idx]
                 .seek_from_start(new_offset)
                 .unwrap();
-            // Entry update deferred to file close, for performance.
+
         }
         self.open_files[file_idx].entry.attributes.set_archive(true);
         self.open_files[file_idx].entry.mtime = self.time_source.get_timestamp();
         Ok(())
     }
 
+
     /// Close a file with the given full path.
     pub async fn close_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {
-        let result = self.flush(file).await;
+        let flush_result = self.flush_file(file).await;
         let file_idx = self.get_file_by_id(file)?;
         self.open_files.swap_remove(file_idx);
         flush_result

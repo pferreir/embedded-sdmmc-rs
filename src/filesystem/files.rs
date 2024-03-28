@@ -132,7 +132,7 @@ where
 
     /// Flush any written data by updating the directory entry.
     pub async fn flush(&mut self) -> Result<(), Error<D::Error>> {
-        self.volume_mgr.flush(self.raw_file).await
+        self.volume_mgr.flush_file(self.raw_file).await
     }
 
     /// Consume the `File` handle and close it. The behavior of this is similar
