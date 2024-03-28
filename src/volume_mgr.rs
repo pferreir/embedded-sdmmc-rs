@@ -728,7 +728,6 @@ where
 
         // Until we can make a slice of RefBlock, we need to do this iteratively
         while written < bytes_to_write {
-
             let mut current_cluster = self.open_files[file_idx].current_cluster;
             debug!(
                 "Have written bytes {}/{}, finding cluster {:?}",
@@ -783,6 +782,9 @@ where
             // TODO This will need a lot of memory. I suggest working on replacing `&[Block]` with `&[RefBlock]`
             // which can either reference a block, or a contiguous slice directly from the input buffer.
             let mut blocks: [_; BLOCKS] = from_fn(|_| Block::new());
+
+            // For the first block, figure out how much we can copy, being either the amount we have
+            // left to fill the block, or the length of the input buffer (slice).
             let to_copy = core::cmp::min(block_avail, slice.len());
             if block_offset != 0 {
                 debug!("Partial block write");
@@ -792,27 +794,29 @@ where
                     .map_err(Error::DeviceError)?;
             }
             let block = &mut blocks[0];
-            block[block_offset..block_offset + to_copy]
-                .copy_from_slice(&slice[..to_copy]);
+            block[block_offset..block_offset + to_copy].copy_from_slice(&slice[..to_copy]);
             slice = &slice[to_copy..];
 
+            // For the remaining blocks we keep track of how many blocks we have written, and how many bytes we have written.
             let mut num_blocks = 1;
             let mut to_copy_sum = to_copy;
 
             for i in 1..BLOCKS {
-                let block = &mut blocks[i];
-                let to_copy = (slice.len()).min(Block::LEN);
-                if to_copy == 0 {
+                // If we have no more data to write, we break out of the loop.
+                if slice.len() == 0 {
                     break;
                 }
 
-                // defmt::info!("Writing block {}, Bytes: {}", i, to_copy);
+                // Copy as much data as we can into the block.
+                let block = &mut blocks[i];
+                let to_copy = (slice.len()).min(Block::LEN);
                 block[..to_copy].copy_from_slice(&slice[..to_copy]);
                 slice = &slice[to_copy..];
                 num_blocks += 1;
                 to_copy_sum += to_copy;
             }
 
+            // Write all the blocks which contain data to the block device.
             self.block_device
                 .write(&blocks[..num_blocks], block_idx)
                 .await
@@ -821,6 +825,7 @@ where
 
             written += to_copy_sum;
 
+            // Update the file offset to the new offset.
             let new_offset = self.open_files[file_idx].current_offset + to_copy_sum as u32;
             if new_offset > self.open_files[file_idx].entry.size {
                 // We made it longer
@@ -829,13 +834,11 @@ where
             self.open_files[file_idx]
                 .seek_from_start(new_offset)
                 .unwrap();
-
         }
         self.open_files[file_idx].entry.attributes.set_archive(true);
         self.open_files[file_idx].entry.mtime = self.time_source.get_timestamp();
         Ok(())
     }
-
 
     /// Close a file with the given full path.
     pub async fn close_file(&mut self, file: RawFile) -> Result<(), Error<D::Error>> {

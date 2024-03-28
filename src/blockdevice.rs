@@ -86,7 +86,11 @@ pub trait BlockDevice {
         reason: &str,
     ) -> impl Future<Output = Result<(), Self::Error>>;
     /// Write one or more blocks, starting at the given block index.
-    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> impl Future<Output = Result<(), Self::Error>>;
+    fn write(
+        &self,
+        blocks: &[Block],
+        start_block_idx: BlockIdx,
+    ) -> impl Future<Output = Result<(), Self::Error>>;
     /// Determine how many blocks this device can hold.
     fn num_blocks(&self) -> impl Future<Output = Result<BlockCount, Self::Error>>;
 }
