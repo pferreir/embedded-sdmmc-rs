@@ -240,6 +240,12 @@ where
         inner.check_init().await?;
         inner.num_blocks().await
     }
+    
+    async fn reset(&self) -> Result<(), Self::Error> {
+        let mut inner = self.inner.borrow_mut();
+        inner.card_type = None;
+        inner.check_init().await
+    }
 }
 
 /// Represents an SD Card on an SPI bus.
@@ -264,31 +270,6 @@ where
     CS: embedded_hal::digital::OutputPin,
     DELAYER: embedded_hal_async::delay::DelayNs,
 {
-    // /// Read one or more blocks, starting at the given block index.
-    // async fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
-    //     let start_idx = match self.card_type {
-    //         Some(CardType::SD1 | CardType::SD2) => start_block_idx.0 * 512,
-    //         Some(CardType::SDHC) => start_block_idx.0,
-    //         None => return Err(Error::CardNotFound),
-    //     };
-    //     self.with_chip_select(|s| {
-    //         if blocks.len() == 1 {
-    //             // Start a single-block read
-    //             s.card_command(CMD17, start_idx).await?;
-    //             s.read_data(&mut blocks[0].contents).await?;
-    //         } else {
-    //             // Start a multi-block read
-    //             s.card_command(CMD18, start_idx)?;
-    //             for block in blocks.iter_mut() {
-    //                 s.read_data(&mut block.contents).await?;
-    //             }
-    //             // Stop the read
-    //             s.card_command(CMD12, 0).await?;
-    //         }
-    //         Ok(())
-    //     })
-    // }
-
     /// Read one or more blocks, starting at the given block index.
     async fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Error> {
         self.cs_low()?;

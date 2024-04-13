@@ -1446,6 +1446,10 @@ mod tests {
         async fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
             Ok(BlockCount(2))
         }
+        
+        async fn reset(&self) -> Result<(), Self::Error> {
+            unimplemented!();
+        }
     }
 
     // #[test]

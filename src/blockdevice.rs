@@ -93,6 +93,8 @@ pub trait BlockDevice {
     ) -> impl Future<Output = Result<(), Self::Error>>;
     /// Determine how many blocks this device can hold.
     fn num_blocks(&self) -> impl Future<Output = Result<BlockCount, Self::Error>>;
+    /// Reset the device. This might be necessary after a DeviceError.
+    fn reset(&self) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
 impl Block {
