@@ -124,7 +124,7 @@ where
     }
 
     /// Convert back to a raw file
-    pub async fn to_raw_file(self) -> RawFile {
+    pub fn to_raw_file(self) -> RawFile {
         let f = self.raw_file;
         core::mem::forget(self);
         f
@@ -139,8 +139,8 @@ where
     /// to using [`core::mem::drop`] or letting the `File` go out of scope,
     /// except this lets the user handle any errors that may occur in the process,
     /// whereas when using drop, any errors will be discarded silently.
-    pub fn close(self) -> Result<(), Error<D::Error>> {
-        let result = self.volume_mgr.close_file(self.raw_file);
+    pub async fn close(self) -> Result<(), Error<D::Error>> {
+        let result = self.volume_mgr.close_file(self.raw_file).await;
         core::mem::forget(self);
         result
     }
